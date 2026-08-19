@@ -203,6 +203,14 @@ jobs:
             echo "✅ $cfg"
           done
 
+      - name: Setup swap for LTO
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          echo "Swap: $(free -h | grep Swap)"
+
       - name: Compile objects
         run: |
           cd kernel
@@ -212,7 +220,7 @@ jobs:
           export KBUILD_BUILD_HOST=github
 
           echo "==> Compiling all objects (parallel)"
-          make -j$(nproc) O=out \
+          make -j4 O=out \
             CC=clang \
             LD=ld.lld \
             AR=llvm-ar \
