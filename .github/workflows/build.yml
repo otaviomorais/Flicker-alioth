@@ -137,7 +137,6 @@ jobs:
               -e CGROUP_DEVICE \
               -e CGROUP_PIDS \
               -e MEMCG \
-              -e MEMCG_KMEM \
               -e MEMCG_SWAP \
               -e CGROUP_SCHED \
               -e FAIR_GROUP_SCHED \
@@ -200,8 +199,26 @@ jobs:
             PYTHON=python3 \
             olddefconfig
 
+          echo "==> Setting ZRAM compression to zstd"
+          scripts/config --file out/.config \
+            -s ZRAM_DEF_COMP zstd
+
+          echo "==> Running olddefconfig again (post-zstd)"
+          make O=out \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            LLVM=1 LLVM_IAS=1 \
+            HOSTCC=gcc \
+            PYTHON=python3 \
+            olddefconfig
+
           echo "==> Config summary:"
-          grep -E "CONFIG_KSU|CONFIG_LRU_GEN|CONFIG_UCLAMP|CONFIG_NTSYNC|CONFIG_OVERLAY_FS|CONFIG_NAMESPACES|CONFIG_CGROUPS|CONFIG_SECCOMP" out/.config || true
+          grep -E "CONFIG_KSU|CONFIG_LRU_GEN|CONFIG_UCLAMP|CONFIG_NTSYNC|CONFIG_OVERLAY_FS|CONFIG_NAMESPACES|CONFIG_CGROUPS|CONFIG_SECCOMP|CONFIG_ZRAM_DEF_COMP|CONFIG_PID_NS|CONFIG_USER_NS|CONFIG_NET_NS|CONFIG_IO_URING" out/.config || true
 
       - name: Compile objects
         run: |
@@ -277,7 +294,6 @@ jobs:
           NOTES="## Flicker Kernel for $DEVICE
 
           **Base**: Flicker-Android-Devices/kernel_xiaomi_sm8250 (sixteen-qpr2)
-          **Kernel**: 4.19.x AOSP Qualcomm SM8250
           **Features**:
           - KernelSU integrated (drivers/kernelsu)
           - DroidSpaces support (cgroups, namespaces, overlayfs, networking)
