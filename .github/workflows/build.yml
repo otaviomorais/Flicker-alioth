@@ -47,16 +47,6 @@ jobs:
             flex bison bc zip unzip file python3 python-is-python3 \
             libssl-dev libncurses-dev kmod cpio
           sudo ln -sf /usr/bin/python3 /usr/bin/python2 || true
-
-      - name: Setup swap
-        run: |
-          sudo fallocate -l 12G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          echo "Swap enabled:"
-          free -h
-
       - name: Clone Flicker kernel source
         run: |
           git clone --depth 1 --branch sixteen-qpr2 \
@@ -182,9 +172,9 @@ jobs:
               -e ENCRYPTED_KEYS \
               -e UNIX_DIAG \
               -e PACKET_DIAG \
-              -e NETLINK_DIAG
-              -e CGROUP_HUGETLB
-              -e PROC_CHILDREN
+              -e NETLINK_DIAG \
+              -e CGROUP_HUGETLB \
+              -e PROC_CHILDREN \
               -e TASK_IO_ACCOUNTING
           fi
 
