@@ -204,7 +204,7 @@ new file mode 100644
 index 000000000..c217b8f10
 --- /dev/null
 +++ b/drivers/cpufreq/cpu_input_boost.c
-@@ -0,0 +1,259 @@
+@@ -0,0 +1,282 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Copyright (C) 2018-2019 Sultan Alsawaf <sultan@kerneltoast.com>.
@@ -225,6 +225,27 @@ index 000000000..c217b8f10
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
 +#include <uapi/linux/sched/types.h>
 +#endif
++
++static struct cpumask cpu_lp_mask;
++static struct cpumask cpu_perf_mask;
++static struct cpumask cpu_prime_mask;
++
++static int __init cpu_input_boost_init_masks(void)
++{
++	int cpu;
++
++	for_each_online_cpu(cpu) {
++		if (cpu < 4)
++			cpumask_set_cpu(cpu, &cpu_lp_mask);
++		else if (cpu < 7)
++			cpumask_set_cpu(cpu, &cpu_perf_mask);
++		else
++			cpumask_set_cpu(cpu, &cpu_prime_mask);
++	}
++
++	return 0;
++}
++late_initcall(cpu_input_boost_init_masks);
 +
 +static unsigned int max_boost_freq_little __read_mostly =
 +	CONFIG_MAX_BOOST_FREQ_LP;
@@ -272,9 +293,9 @@ index 000000000..c217b8f10
 +{
 +	unsigned int freq;
 +
-+	if (cpumask_test_cpu(policy->cpu, cpu_lp_mask))
++	if (cpumask_test_cpu(policy->cpu, &cpu_lp_mask))
 +		freq = max_boost_freq_little;
-+	else if (cpumask_test_cpu(policy->cpu, cpu_perf_mask))
++	else if (cpumask_test_cpu(policy->cpu, &cpu_perf_mask))
 +		freq = max_boost_freq_big;
 +	else
 +		freq = max_boost_freq_prime;
@@ -285,9 +306,9 @@ index 000000000..c217b8f10
 +{
 +	unsigned int freq;
 +
-+	if (cpumask_test_cpu(policy->cpu, cpu_lp_mask))
++	if (cpumask_test_cpu(policy->cpu, &cpu_lp_mask))
 +		freq = cpu_freq_min_little;
-+	else if (cpumask_test_cpu(policy->cpu, cpu_perf_mask))
++	else if (cpumask_test_cpu(policy->cpu, &cpu_perf_mask))
 +		freq = cpu_freq_min_big;
 +	else
 +		freq = cpu_freq_min_prime;
@@ -302,11 +323,11 @@ index 000000000..c217b8f10
 +
 +	/* Only one CPU from each cluster needs to be updated */
 +	get_online_cpus();
-+	cpu = cpumask_first_and(cpu_lp_mask, cpu_online_mask);
++	cpu = cpumask_first_and(&cpu_lp_mask, cpu_online_mask);
 +	cpufreq_update_policy(cpu);
-+	cpu = cpumask_first_and(cpu_perf_mask, cpu_online_mask);
++	cpu = cpumask_first_and(&cpu_perf_mask, cpu_online_mask);
 +	cpufreq_update_policy(cpu);
-+	cpu = cpumask_first_and(cpu_prime_mask, cpu_online_mask);
++	cpu = cpumask_first_and(&cpu_prime_mask, cpu_online_mask);
 +	cpufreq_update_policy(cpu);
 +	put_online_cpus();
 +}
