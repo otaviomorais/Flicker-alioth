@@ -70,7 +70,7 @@ jobs:
           echo "==> Enabling CONFIG_KSU in defconfig"
           if ! grep -q "CONFIG_KSU" arch/arm64/configs/${{ env.DEVICE }}_defconfig; then
             echo "CONFIG_KSU=y" >> arch/arm64/configs/${{ env.DEVICE }}_defconfig
-            echo "CONFIG_KSU_MAGIC_MOUNT=y" >> arch/arm64/configs/${{ env.DEVICE }}_defconfig
+
           fi
 
       - name: Download Clang (ZyCromerZ)
@@ -183,6 +183,9 @@ jobs:
               -e UNIX_DIAG \
               -e PACKET_DIAG \
               -e NETLINK_DIAG
+              -e CGROUP_HUGETLB
+              -e PROC_CHILDREN
+              -e TASK_IO_ACCOUNTING
           fi
 
           echo "==> Running olddefconfig"
@@ -199,26 +202,16 @@ jobs:
             PYTHON=python3 \
             olddefconfig
 
-          echo "==> Setting ZRAM compression to zstd"
-          scripts/config --file out/.config \
-            -s ZRAM_DEF_COMP zstd
-
-          echo "==> Running olddefconfig again (post-zstd)"
-          make O=out \
-            CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            LLVM=1 LLVM_IAS=1 \
-            HOSTCC=gcc \
-            PYTHON=python3 \
-            olddefconfig
-
           echo "==> Config summary:"
           grep -E "CONFIG_KSU|CONFIG_LRU_GEN|CONFIG_UCLAMP|CONFIG_NTSYNC|CONFIG_OVERLAY_FS|CONFIG_NAMESPACES|CONFIG_CGROUPS|CONFIG_SECCOMP|CONFIG_ZRAM_DEF_COMP|CONFIG_PID_NS|CONFIG_USER_NS|CONFIG_NET_NS|CONFIG_IO_URING" out/.config || true
+          echo "==> Validating critical configs..."
+          for cfg in CONFIG_KSU=y CONFIG_LTO_CLANG=y CONFIG_UCLAMP_TASK=y CONFIG_LRU_GEN_ENABLED=y CONFIG_NTSYNC=y CONFIG_OVERLAY_FS=y; do
+            if ! grep -q "$cfg" out/.config; then
+              echo "❌ Missing required config: $cfg"
+              exit 1
+            fi
+            echo "✅ $cfg"
+          done
 
       - name: Compile objects
         run: |
@@ -240,7 +233,7 @@ jobs:
             LLVM=1 LLVM_IAS=1 \
             HOSTCC=gcc \
             PYTHON=python3 \
-            Image dtbs
+            Image dtbs modules
 
       - name: Collect artifacts
         run: |
@@ -262,16 +255,26 @@ jobs:
 
           ls -la out/pack/
 
-      - name: Package AnyKernel
+      - name: Package AnyKernel + modules
         run: |
           mkdir -p ak
           cp -r repo/anykernel/. ak/
-          cp kernel/out/pack/Image ak/Image
-          if ls kernel/out/pack/*.dtb 1>/dev/null 2>&1; then
-            cp kernel/out/pack/*.dtb ak/ 2>/dev/null || true
+          cp kernel/out/arch/arm64/boot/Image ak/Image
+          if ls kernel/out/arch/arm64/boot/dts/vendor/qcom/*.dtb 1>/dev/null 2>&1; then
+            cp kernel/out/arch/arm64/boot/dts/vendor/qcom/*.dtb ak/ 2>/dev/null || true
           fi
-          if [ -f kernel/out/pack/dtbo.img ]; then
-            cp kernel/out/pack/dtbo.img ak/dtbo.img
+          if [ -f kernel/out/arch/arm64/boot/dtbo.img ]; then
+            cp kernel/out/arch/arm64/boot/dtbo.img ak/dtbo.img
+          fi
+          # Install kernel modules
+          make -C kernel O=out \
+            CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+            OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            LLVM=1 LLVM_IAS=1 HOSTCC=gcc PYTHON=python3 \
+            INSTALL_MOD_PATH=$(pwd)/../ak-modules modules_install 2>/dev/null || true
+          if [ -d "../ak-modules/lib/modules" ] && [ "$(ls ../ak-modules/lib/modules/ 2>/dev/null | head -1)" ]; then
+            echo "==> Copying kernel modules"
+            cp -a ../ak-modules/lib ak/lib/modules
           fi
           cd ak
           ZIP="Flicker-${DEVICE}-KSU-$(date +%Y%m%d-%H%M).zip"

@@ -14,7 +14,6 @@ Custom kernel build for Xiaomi Poco F3 based on
 - **NTSync** for Wine/Proton compatibility
 - **BBR/TCP** congestion control
 - **ZRAM** with zstd compression
-- **io_uring** support
 
 ## Building
 
