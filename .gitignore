@@ -1,0 +1,8 @@
+*.zip
+*.img
+*.dtb
+*.dtbo
+*.ko
+out/
+toolchain/
+kernel/
