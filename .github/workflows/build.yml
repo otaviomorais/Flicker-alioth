@@ -48,6 +48,15 @@ jobs:
             libssl-dev libncurses-dev kmod cpio
           sudo ln -sf /usr/bin/python3 /usr/bin/python2 || true
 
+      - name: Setup swap
+        run: |
+          sudo fallocate -l 12G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          echo "Swap enabled:"
+          free -h
+
       - name: Clone Flicker kernel source
         run: |
           git clone --depth 1 --branch sixteen-qpr2 \
@@ -194,7 +203,7 @@ jobs:
           echo "==> Config summary:"
           grep -E "CONFIG_KSU|CONFIG_LRU_GEN|CONFIG_UCLAMP|CONFIG_NTSYNC|CONFIG_OVERLAY_FS|CONFIG_NAMESPACES|CONFIG_CGROUPS|CONFIG_SECCOMP" out/.config || true
 
-      - name: Build kernel
+      - name: Compile objects
         run: |
           cd kernel
           export ARCH=arm64
@@ -202,7 +211,7 @@ jobs:
           export KBUILD_BUILD_USER=Flicker
           export KBUILD_BUILD_HOST=github
 
-          echo "==> Building Image + DTBs"
+          echo "==> Compiling all objects (parallel)"
           make -j$(nproc) O=out \
             CC=clang \
             LD=ld.lld \
