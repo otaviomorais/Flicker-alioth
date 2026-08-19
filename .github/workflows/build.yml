@@ -347,7 +347,8 @@ jobs:
             INSTALL_MOD_PATH=$(pwd)/../ak-modules modules_install 2>/dev/null || true
           if [ -d "../ak-modules/lib/modules" ] && [ "$(ls ../ak-modules/lib/modules/ 2>/dev/null | head -1)" ]; then
             echo "==> Copying kernel modules"
-            cp -a ../ak-modules/lib ak/lib/modules
+            mkdir -p ak/lib
+            cp -a ../ak-modules/lib/modules ak/lib/
           fi
           cd ak
           ZIP="Flicker-${DEVICE}-KSU-$(date +%Y%m%d-%H%M).zip"
