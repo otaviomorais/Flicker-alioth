@@ -40,6 +40,16 @@ jobs:
         with:
           path: repo
 
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/apt/archives
+            /var/lib/apt/lists
+          key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+
       - name: Install dependencies
         run: |
           sudo apt-get update -y
@@ -47,10 +57,87 @@ jobs:
             flex bison bc zip unzip file python3 python-is-python3 \
             libssl-dev libncurses-dev kmod cpio
           sudo ln -sf /usr/bin/python3 /usr/bin/python2 || true
+
+      - name: Cache kernel source
+        id: cache-kernel
+        uses: actions/cache@v4
+        with:
+          path: kernel
+          key: ${{ runner.os }}-kernel-sm8250-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-kernel-sm8250-
+
       - name: Clone Flicker kernel source
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch sixteen-qpr2 \
             https://github.com/Flicker-Android-Devices/kernel_xiaomi_sm8250.git kernel
+
+      - name: Cache Clang toolchain
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: toolchain/clang
+          key: ${{ runner.os }}-clang20-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-clang20-
+
+      - name: Download Clang (ZyCromerZ)
+        if: steps.cache-clang.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p toolchain
+          cd toolchain
+          curl -L -o clang.tar.gz \
+            https://github.com/ZyCromerZ/Clang/releases/download/20.0.0git-20250129-release/Clang-20.0.0git-20250129.tar.gz
+          mkdir -p clang && tar -xzf clang.tar.gz -C clang
+          rm clang.tar.gz
+          CLANG_BIN="$(pwd)/clang/bin"
+          if [ ! -x "$CLANG_BIN/clang" ]; then
+            CLANG_BIN="$(cd "$(find clang -name clang -path '*/bin/*' -exec dirname {} \; | head -1)" && pwd)"
+          fi
+          echo "Clang em: $CLANG_BIN"
+          echo "$CLANG_BIN" >> "$GITHUB_PATH"
+
+      - name: Cache GCC cross-compiler
+        id: cache-gcc
+        uses: actions/cache@v4
+        with:
+          path: toolchain/gcc
+          key: ${{ runner.os }}-gcc-aarch64-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-gcc-aarch64-
+
+      - name: Download GCC cross-compiler
+        if: steps.cache-gcc.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p toolchain/gcc
+          cd toolchain/gcc
+          curl -L -o gcc.tar.gz \
+            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/heads/android12-release.tar.gz
+          tar -xf gcc.tar.gz || true
+          rm gcc.tar.gz
+          GCC_BIN="$(find . -name aarch64-linux-android-gcc -exec dirname {} \; | head -1)"
+          if [ -n "$GCC_BIN" ]; then
+            echo "$GCC_BIN" >> "$GITHUB_PATH"
+          fi
+
+      - name: Restore cached toolchains
+        if: steps.cache-clang.outputs.cache-hit == 'true' || steps.cache-gcc.outputs.cache-hit == 'true'
+        run: |
+          if [ "${{ steps.cache-clang.outputs.cache-hit }}" == "true" ]; then
+            CLANG_BIN="$(pwd)/toolchain/clang/bin"
+            if [ ! -x "$CLANG_BIN/clang" ]; then
+              CLANG_BIN="$(cd "$(find toolchain/clang -name clang -path '*/bin/*' -exec dirname {} \; | head -1)" && pwd)"
+            fi
+            echo "Clang em: $CLANG_BIN"
+            echo "$CLANG_BIN" >> "$GITHUB_PATH"
+          fi
+          if [ "${{ steps.cache-gcc.outputs.cache-hit }}" == "true" ]; then
+            GCC_BIN="$(find toolchain/gcc -name aarch64-linux-android-gcc -exec dirname {} \; | head -1)"
+            if [ -n "$GCC_BIN" ]; then
+              echo "$GCC_BIN" >> "$GITHUB_PATH"
+            fi
+          fi
 
       - name: Setup KernelSU
         if: env.ENABLE_KSU == 'true'
@@ -60,33 +147,6 @@ jobs:
           echo "==> Enabling CONFIG_KSU in defconfig"
           if ! grep -q "CONFIG_KSU" arch/arm64/configs/${{ env.DEVICE }}_defconfig; then
             echo "CONFIG_KSU=y" >> arch/arm64/configs/${{ env.DEVICE }}_defconfig
-
-          fi
-
-      - name: Download Clang (ZyCromerZ)
-        run: |
-          mkdir -p toolchain
-          cd toolchain
-          curl -L -o clang.tar.gz \
-            https://github.com/ZyCromerZ/Clang/releases/download/20.0.0git-20250129-release/Clang-20.0.0git-20250129.tar.gz
-          tar -xf clang.tar.gz
-          CLANG_BIN="$(pwd)/bin"
-          if [ ! -x "$CLANG_BIN/clang" ]; then
-            CLANG_BIN="$(cd "$(find . -name clang -path '*/bin/*' -exec dirname {} \; | head -1)" && pwd)"
-          fi
-          echo "Clang em: $CLANG_BIN"
-          echo "$CLANG_BIN" >> "$GITHUB_PATH"
-
-      - name: Download GCC cross-compiler
-        run: |
-          mkdir -p toolchain/gcc
-          cd toolchain/gcc
-          curl -L -o gcc.tar.gz \
-            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/heads/android12-release.tar.gz
-          tar -xf gcc.tar.gz || true
-          GCC_BIN="$(find . -name aarch64-linux-android-gcc -exec dirname {} \; | head -1)"
-          if [ -n "$GCC_BIN" ]; then
-            echo "$GCC_BIN" >> "$GITHUB_PATH"
           fi
 
       - name: Setup swap for OOM protection
@@ -192,6 +252,29 @@ jobs:
               -e TASK_IO_ACCOUNTING
           fi
 
+          # Enable scheduler improvements from TIMISONG/kvsnr113
+          echo "==> Enabling scheduler improvements"
+          scripts/config --file out/.config \
+            -e CONFIG_SCHED_WALT \
+            -e CONFIG_SCHED_CORE_CTL \
+            -e CONFIG_CPU_BOOST
+
+          # Enable IRQ SBALANCE from kvsnr113
+          scripts/config --file out/.config \
+            -e CONFIG_IRQ_SBALANCE \
+            -e CONFIG_IRQ_SBALANCE_POLL_MSEC \
+            -e CONFIG_IRQ_SBALANCE_THRESH
+
+          # Enable Uclamp Assist from kvsnr113
+          scripts/config --file out/.config \
+            -e CONFIG_UCLAMP_ASSIST
+
+          # Set ZRAM default compression to zstd (better than lz4)
+          scripts/config --file out/.config \
+            -e CONFIG_ZRAM_DEF_COMP_ZSTD \
+            -d CONFIG_ZRAM_DEF_COMP_LZ4 \
+            -d CONFIG_ZRAM_DEF_COMP_LZ4HC
+
           echo "==> Running olddefconfig"
           make O=out \
             CC=clang \
@@ -207,7 +290,7 @@ jobs:
             olddefconfig
 
           echo "==> Config summary:"
-          grep -E "CONFIG_KSU|CONFIG_LRU_GEN|CONFIG_UCLAMP|CONFIG_NTSYNC|CONFIG_OVERLAY_FS|CONFIG_NAMESPACES|CONFIG_CGROUPS|CONFIG_SECCOMP|CONFIG_ZRAM_DEF_COMP|CONFIG_PID_NS|CONFIG_USER_NS|CONFIG_NET_NS|CONFIG_IO_URING" out/.config || true
+          grep -E "CONFIG_KSU|CONFIG_LRU_GEN|CONFIG_UCLAMP|CONFIG_NTSYNC|CONFIG_OVERLAY_FS|CONFIG_NAMESPACES|CONFIG_CGROUPS|CONFIG_SECCOMP|CONFIG_ZRAM_DEF_COMP|CONFIG_PID_NS|CONFIG_USER_NS|CONFIG_NET_NS|CONFIG_IO_URING|CONFIG_SCHED_WALT|CONFIG_SCHED_CORE_CTL|CONFIG_IRQ_SBALANCE|CONFIG_UCLAMP_ASSIST|CONFIG_CPU_BOOST" out/.config || true
           echo "==> Validating critical configs..."
           for cfg in CONFIG_KSU=y CONFIG_THIN_LTO_CLANG=y CONFIG_UCLAMP_TASK=y CONFIG_LRU_GEN_ENABLED=y CONFIG_NTSYNC=y CONFIG_OVERLAY_FS=y; do
             if ! grep -q "$cfg" out/.config; then
@@ -216,6 +299,8 @@ jobs:
             fi
             echo "✅ $cfg"
           done
+          echo "==> New features enabled:"
+          grep -E "CONFIG_SCHED_WALT|CONFIG_SCHED_CORE_CTL|CONFIG_IRQ_SBALANCE|CONFIG_UCLAMP_ASSIST|CONFIG_CPU_BOOST|CONFIG_ZRAM_DEF_COMP_ZSTD" out/.config || true
 
       - name: Compile objects
         run: |
@@ -310,6 +395,11 @@ jobs:
           - NTSync (Wine/Proton)
           - BBR/TCP congestion control
           - ZRAM with zstd compression
+          - SCHED_WALT (Weighted Average Load Tracking)
+          - SCHED_CORE_CTL (Core capacity control)
+          - IRQ_SBALANCE (IRQ load balancing)
+          - UCLAMP_ASSIST (Auto uclamp tuning)
+          - CPU_BOOST (Aggressive performance boost)
 
           **Flash via TWRP/Recovery**"
 
