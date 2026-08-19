@@ -365,6 +365,9 @@ jobs:
           if [ -d "../ak-modules/lib/modules" ] && [ "$(ls ../ak-modules/lib/modules/ 2>/dev/null | head -1)" ]; then
             echo "==> Copying kernel modules"
             mkdir -p ak/lib
+            # Remove build/source symlinks to avoid recursive copies
+            find ../ak-modules/lib/modules/ -type l -name build -delete 2>/dev/null || true
+            find ../ak-modules/lib/modules/ -type l -name source -delete 2>/dev/null || true
             cp -a ../ak-modules/lib/modules ak/lib/
           fi
           cd ak
