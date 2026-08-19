@@ -9,7 +9,7 @@ Custom kernel build for Xiaomi Poco F3 based on
 - **KernelSU** integrated (`drivers/kernelsu`) with root access
 - **DroidSpaces** support: full cgroup, namespace, overlayfs, and networking stack
 - **Uclamp + PELT** scheduler for better CPU load balancing
-- **Full LTO** (Link-Time Optimization) via Clang
+- **ThinLTO** (Link-Time Optimization) via Clang
 - **MGLRU** (Multi-Gen LRU) for improved memory management
 - **NTSync** for Wine/Proton compatibility
 - **BBR/TCP** congestion control
