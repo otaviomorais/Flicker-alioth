@@ -13,7 +13,20 @@ Custom kernel build for Xiaomi Poco F3 based on
 - **MGLRU** (Multi-Gen LRU) for improved memory management
 - **NTSync** for Wine/Proton compatibility
 - **BBR/TCP** congestion control
-- **ZRAM** with zstd compression
+- **ZRAM** with zstd default compression
+- **io_uring** support
+- **SCHED_WALT** + **SCHED_CORE_CTL** (already in base kernel)
+
+### Ported patches (from e404/kvsnr113)
+
+Patches live in `patches/` — remove any `.patch` file to disable that feature.
+
+| Patch | Feature | Priority |
+|-------|---------|----------|
+| `0001-irq-sbalance` | IRQ soft balancing — less thermal throttling | High |
+| `0002-uclamp-assist` | Auto-tuning uclamp per cgroup | Medium |
+| `0003-cpu-boost` | kthread-worker CPU boost + per-cluster input boost | Medium |
+| `0004-zram-zstd` | ZRAM default compressor = zstd | Low |
 
 ## Building
 
@@ -60,3 +73,4 @@ make -j$(nproc) O=out CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 HOSTCC=gcc \
 - [Flicker-Android-Devices](https://github.com/Flicker-Android-Devices) — kernel source
 - [KernelSU](https://github.com/tiann/KernelSU) — root solution
 - [AnyKernel3](https://github.com/osm0sis/AnyKernel3) — flashable zip template
+- [kvsnr113/e404](https://github.com/kvsnr113/xiaomi_sm8250_kernel_e404) — IRQ_SBALANCE, UCLAMP_ASSIST, CPU_BOOST patches

@@ -78,6 +78,18 @@ jobs:
           git clone --depth 1 --branch sixteen-qpr2 \
             https://github.com/Flicker-Android-Devices/kernel_xiaomi_sm8250.git kernel
 
+      - name: Apply feature patches
+        run: |
+          cd kernel
+          for patch in ../repo/patches/*.patch; do
+            echo "==> Applying $(basename "$patch")"
+            git apply --check "$patch" && git apply "$patch" || {
+              echo "❌ Failed to apply $patch"
+              exit 1
+            }
+          done
+          echo "==> All patches applied successfully"
+
       - name: Cache Clang toolchain
         id: cache-clang
         uses: actions/cache@v4
@@ -258,8 +270,13 @@ jobs:
               -e TASK_IO_ACCOUNTING
           fi
 
-          # NOTE: ZRAM compression is set at runtime via sysfs (not in 4.19 defconfig)
-          # To enable zstd: echo zstd > /sys/block/zram0/comp_algorithm
+          # Enable patched features
+          echo "==> Enabling feature patches configs"
+          scripts/config --file out/.config \
+            -e IRQ_SBALANCE \
+            -e UCLAMP_ASSIST \
+            -e CPU_INPUT_BOOST \
+            -e ZRAM_DEF_COMP_ZSTD
 
           echo "==> Running olddefconfig"
           make O=out \
