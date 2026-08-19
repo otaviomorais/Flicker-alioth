@@ -52,6 +52,11 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # Remove slow/irrelevant repos to speed up apt
+          sudo rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
+          echo "deb http://archive.ubuntu.com/ubuntu/ noble main universe" | sudo tee /etc/apt/sources.list.d/fast.list
+          echo "deb http://archive.ubuntu.com/ubuntu/ noble-updates main universe" | sudo tee -a /etc/apt/sources.list.d/fast.list
+          echo "deb http://security.ubuntu.com/ubuntu/ noble-security main universe" | sudo tee -a /etc/apt/sources.list.d/fast.list
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
             flex bison bc zip unzip file python3 python-is-python3 \
