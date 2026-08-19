@@ -1,87 +1,3 @@
-diff --git a/drivers/cpufreq/Kconfig b/drivers/cpufreq/Kconfig
-index d49ac2073..bd5692aa5 100644
---- a/drivers/cpufreq/Kconfig
-+++ b/drivers/cpufreq/Kconfig
-@@ -203,6 +203,65 @@ config CPU_BOOST
- 
- 	  If in doubt, say N.
- 
-+config CPU_INPUT_BOOST
-+	bool "CPU Input Boost"
-+	help
-+	  Boosts the CPU on touchscreen and touchpad input, and allows for
-+	  boosting on other custom events, mainly which is intended to be for
-+	  boosting when there is a new frame ready to be rendered to the
-+	  display. The boost frequencies for this driver should be set so that
-+	  frame drops are near-zero at the boosted frequencies and power
-+	  consumption is minimized at said frequency combination.
-+
-+if CPU_INPUT_BOOST
-+
-+config MAX_BOOST_FREQ_LP
-+	int "Low-power cluster max-boost freq"
-+	default "0"
-+	help
-+	  Max-boost frequency for the low-power CPU cluster.
-+
-+config MAX_BOOST_FREQ_PERF
-+	int "Performance cluster max-boost freq"
-+	default "0"
-+	help
-+	  Max-boost frequency for the performance CPU cluster.
-+
-+config MAX_BOOST_FREQ_PRIME
-+	int "Prime cluster max-boost freq"
-+	default "0"
-+	help
-+	  Max-boost frequency for the prime CPU cluster.
-+
-+config CPU_FREQ_MIN_LP
-+	int "Default minimum frequency for the little cluster"
-+	default 0
-+	help
-+	  This sets the default minimum frequency (in kHz) for the little CPU
-+	  cluster.
-+
-+	  If in doubt, say 0 to use the hardware's minimum frequency.
-+
-+config CPU_FREQ_MIN_PERF
-+	int "Default minimum frequency for the big cluster"
-+	default 0
-+	help
-+	  This sets the default minimum frequency (in kHz) for the big CPU
-+	  cluster.
-+
-+	  If in doubt, say 0 to use the hardware's minimum frequency.
-+
-+config CPU_FREQ_MIN_PRIME
-+	int "Default minimum frequency for the prime cluster"
-+	default 0
-+	help
-+	  This sets the default minimum frequency (in kHz) for the prime CPU
-+	  cluster.
-+
-+	  If in doubt, say 0 to use the hardware's minimum frequency.
-+
-+endif
-+
- config CPU_FREQ_GOV_SCHEDUTIL
- 	bool "'schedutil' cpufreq policy governor"
- 	depends on CPU_FREQ && SMP
-diff --git a/drivers/cpufreq/Makefile b/drivers/cpufreq/Makefile
-index 9dfd353f0..cc299fb3b 100644
---- a/drivers/cpufreq/Makefile
-+++ b/drivers/cpufreq/Makefile
-@@ -18,6 +18,9 @@ obj-$(CONFIG_CPU_FREQ_GOV_COMMON)		+= cpufreq_governor.o
- obj-$(CONFIG_CPU_FREQ_GOV_ATTR_SET)	+= cpufreq_governor_attr_set.o
- obj-$(CONFIG_CPU_BOOST)			+= cpu-boost.o
- 
-+# CPU Input Boost
-+obj-$(CONFIG_CPU_INPUT_BOOST)		+= cpu_input_boost.o
-+
- obj-$(CONFIG_CPUFREQ_DT)		+= cpufreq-dt.o
- obj-$(CONFIG_CPUFREQ_DT_PLATDEV)	+= cpufreq-dt-platdev.o
- 
 diff --git a/drivers/cpufreq/cpu-boost.c b/drivers/cpufreq/cpu-boost.c
 index cb07beebd..49d8c5b61 100644
 --- a/drivers/cpufreq/cpu-boost.c
@@ -201,10 +117,10 @@ index cb07beebd..49d8c5b61 100644
  	for_each_possible_cpu(cpu) {
 diff --git a/drivers/cpufreq/cpu_input_boost.c b/drivers/cpufreq/cpu_input_boost.c
 new file mode 100644
-index 000000000..c217b8f10
+index 000000000..e36861b54
 --- /dev/null
 +++ b/drivers/cpufreq/cpu_input_boost.c
-@@ -0,0 +1,282 @@
+@@ -0,0 +1,280 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Copyright (C) 2018-2019 Sultan Alsawaf <sultan@kerneltoast.com>.
