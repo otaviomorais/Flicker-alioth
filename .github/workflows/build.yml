@@ -370,16 +370,15 @@ jobs:
             find ../ak-modules/lib/modules/ -type l -name source -delete 2>/dev/null || true
             cp -a ../ak-modules/lib/modules ak/lib/
           fi
-          cd ak
           ZIP="Flicker-${DEVICE}-KSU-$(date +%Y%m%d-%H%M).zip"
-          zip -r9 "$ZIP" . -x '*.git*'
-          mv "$ZIP" "$GITHUB_WORKSPACE/"
+          cd ak && zip -r9 "$ZIP" . -x '*.git*' && cd ..
+          mv "ak/$ZIP" repo/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Flicker-${{ env.DEVICE }}
-          path: Flicker-*.zip
+          path: repo/Flicker-*.zip
           if-no-files-found: error
 
       - name: Create Release
@@ -387,7 +386,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ZIP="$(ls "$GITHUB_WORKSPACE/Flicker-*.zip")"
+          ZIP="$(ls Flicker-*.zip)"
           RELEASE="flicker-v1.0.0-$(date +%Y%m%d-%H%M)"
           NOTES="## Flicker Kernel for $DEVICE
 
