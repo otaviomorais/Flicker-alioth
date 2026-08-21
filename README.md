@@ -83,7 +83,6 @@ Defconfig: `arch/arm64/configs/alioth_defconfig`
 
 ## Credits
 - [TIMISONG-dev/MagicTime](https://github.com/TIMISONG-dev/kernel_xiaomi_sm8250) — base EEVDF+CASS
-- [kvsnr113/e404](https://github.com/kvsnr113/xiaomi_sm8250_kernel_e404) — referências EEVDF/DroidSpaces
 - [ravindu644](https://github.com/ravindu644) — fragmento DroidSpaces original
 - [KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) — root solution
 - [osm0sis/AnyKernel3](https://github.com/osm0sis/AnyKernel3) — flashable zip
