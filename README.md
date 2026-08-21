@@ -1,90 +1,89 @@
-# E404-MGLRU Kernel — Poco F3 / Mi 11X (alioth)
+# FlickerDS Kernel — Poco F3 / Mi 11X (alioth)
 
-Custom kernel for Xiaomi POCO F3 / Mi 11X (alioth) built on the
-[e404 kernel](https://github.com/kvsnr113/xiaomi_sm8250_kernel_e404)
-(`staging-bpf` branch, Linux 4.19.404-R) with the **MGLRU memory management
-backported from Flicker** and **memory fixes ported from MagicTime**.
+Kernel **completo e próprio** para Xiaomi POCO F3 / Mi 11X (alioth), mantido
+neste repositório. Base MagicTime (4.19.325) + DroidSpaces + **EEVDF pleno**,
+compilado direto desta árvore pelo GitHub Actions.
 
-## Why this kernel?
+## Identidade
+- Nome: `uname -r` → `4.19.325-perf-FlickerDS` *(LOCALVERSION `-FlickerDS`)*
+- Banner AnyKernel: FlickerDS ASCII
+- Fonte completa vendorizada em [`kernel/`](kernel/) — sem dependência de repos de terceiros
 
-The stock e404 ships with `MEMCG=n` and `PSI=n`. Under sustained
-[DroidSpaces](https://github.com/AndroidDroidSpaces) usage this degrades
-lmkd pressure signals: background apps get killed indiscriminately and the
-camera HAL dies. This build enables both (like MagicTime/Flicker do) and adds
-MGLRU on top.
+## Scheduler — EEVDF pleno
+- Backport completo do EEVDF (`pick_eevdf`, delayed dequeue, slice protection)
+- **`ENFORCE_ELIGIBILITY=true`** — fairness imposta: tarefas que consumiram acima da cota perdem a vez
+- Placement features ON (`PLACE_LAG`, `PLACE_DEADLINE_INITIAL`, `PLACE_REL_DEADLINE`, `RUN_TO_PARITY`) — defaults do 6.6+
+- **CASS** para wake-up balancing + **Uclamp Assist**
+- WALT removido
 
-## Features
+## DroidSpaces / LXC
+- Namespaces completos: PID, UTS, IPC, NET e **USER**
+- MEMCG + PSI (lmkd com sinal fino de pressão)
+- `CGROUP_DEVICE/PIDS/FREEZER` + **FAIR_GROUP_SCHED** (CPU shares por container)
+- Netfilter/NAT/VETH/Bridge para isolamento de rede
+- Patch cgroup NOPREFIX (symlinks `<subsys>.<file>` que o LXC espera)
 
-### Base (e404 staging-bpf, 4.19.404-R)
-- **EEVDF + CASS** scheduler (WALT removed upstream)
-- **KernelSU** (xxksu by backslashxx) integrated via submodule
-- **SBalance** IRQ balancer (`IRQ_SBALANCE=y`)
-- **Uclamp Assist** (`UCLAMP_ASSIST=y`)
-- **CPU Input Boost** (`CPU_INPUT_BOOST=y`)
-- **ZRAM zstd** default compression + writeback
-- **NTSync** (Wine/Proton)
-- **BPF backport 5.15** + uname spoof (Android 16/17 ROM support)
-- **ThinLTO**
+## Extras
+- KernelSU-Next (submódulo, `CONFIG_KSU=y`)
+- ZRAM writeback; NTSYNC presente na base MagicTime
 
-### Ported in this repo (see `patches/`)
-| Patch | Content |
-|-------|---------|
-| `0001-alioth-defconfig...` | `MEMCG`, `MEMCG_SWAP`, `PSI`, `LRU_GEN`, `LRU_GEN_ENABLED`, `CPU_INPUT_BOOST`, zram zstd |
-| `0002-mm-backport-MGLRU...` | Full MGLRU series from Flicker (27 commits) adapted to the e404 baseline: modern pagewalk ops API (new `p4d_entry`), XArray swap-cache shadow handling, `mmap_sem` naming, 2-arg lru list helpers, arm64 `arch_has_hw_pte_young` |
+> ℹ️ MGLRU não faz parte desta base por desenho. O porte MGLRU+MEMCG/PSI viveu na
+> geração anterior (base e404), disponível no histórico do repo.
 
 ## Building
 
-### GitHub Actions (recommended)
+### GitHub Actions (recomendado)
+Push em `main` dispara o build:
+1. Checkout com submódulos recursivos (KernelSU-Next)
+2. Sanity-check de branding + flags EEVDF
+3. `alioth_defconfig` + fragments `magictime-common` + `droidspaces` via `merge_config.sh`
+   (com relatório de símbolos não-aplicados)
+4. Validação de configs críticas (KSU, MEMCG, PSI, USER_NS, FAIR_GROUP_SCHED, VETH…)
+5. Clang 20 (ZyCromerZ) + GCC 4.9, swap 8 GB
+6. Empacota zip AnyKernel3 (`Image` + `dtb` concatenado p/ vendor_boot + `dtbo.img`)
+7. Artifact + GitHub Release
 
-Push to `main` or trigger manually from the Actions tab. The workflow will:
-
-1. Clone the e404 kernel source **with the KernelSU submodule**
-2. Apply `patches/*.patch`
-3. Validate critical configs (`MEMCG`, `PSI`, `LRU_GEN`, `THINLTO`, `KSU`)
-4. Compile with Clang 20 (ZyCromerZ) + 8 GB swap for ThinLTO
-5. Package as AnyKernel3 zip (single concatenated `dtb` → vendor_boot,
-   `dtbo.img` → dtbo partition)
-6. Upload artifact and create a GitHub Release
-
-### Manual build
-
+### Manual
 ```bash
-# Dependencies
-sudo apt install flex bison bc zip unzip libssl-dev
+git clone --recurse-submodules https://github.com/otaviomorais/Flicker-alioth.git
+cd Flicker-alioth/kernel
 
-# Clone with KernelSU submodule
-git clone --depth 1 --branch staging-bpf \
-  https://github.com/kvsnr113/xiaomi_sm8250_kernel_e404.git kernel
-cd kernel && git submodule update --init --depth 1
-
-# Apply patches from this repo
-for p in ../patches/*.patch; do git apply "$p"; done
-
-# Build
 export ARCH=arm64
-make O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+  CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
   OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip HOSTCC=gcc \
-  vendor/alioth_defconfig
-make -j$(nproc) O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+  alioth_defconfig
+./scripts/kconfig/merge_config.sh -m -O out out/.config \
+  arch/arm64/configs/vendor/xiaomi/magictime-common.config \
+  arch/arm64/configs/vendor/xiaomi/droidspaces.config
+make O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC=clang LD=ld.lld \
+  AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+  HOSTCC=gcc olddefconfig
+
+make -j$(nproc) O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+  CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
   OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip HOSTCC=gcc \
   Image dtbo.img dtbs
 ```
 
-> Note: the defconfig lives at `arch/arm64/configs/vendor/alioth_defconfig`.
+Defconfig: `arch/arm64/configs/alioth_defconfig`
+(+ fragments em `arch/arm64/configs/vendor/xiaomi/`)
 
 ## Installation
-
-1. Download the latest release zip
-2. Flash via TWRP or any custom recovery (AnyKernel3)
+1. Baixe o zip da última release
+2. Flash via TWRP/custom recovery (AnyKernel3)
 3. Reboot
 
-⚠️ MGLRU + MEMCG change reclaim behavior significantly — test on your device
-before daily driving, especially if you use DroidSpaces.
+## Estrutura
+```
+├── kernel/            # fonte completa do kernel (+ KernelSU-Next submodule)
+├── anykernel/         # template AnyKernel3 (banner FlickerDS)
+└── .github/workflows/ # build + release automáticos
+```
 
 ## Credits
-
-- [kvsnr113/e404](https://github.com/kvsnr113/xiaomi_sm8250_kernel_e404) — base kernel (EEVDF/CASS, KSU, BPF A16/A17)
-- [Flicker-Android-Devices](https://github.com/Flicker-Android-Devices/kernel_xiaomi_sm8250) — MGLRU backport source
-- [TIMISONG-dev/MagicTime](https://github.com/TIMISONG-dev/MagicTime-alioth) — MEMCG/PSI reference config + AnyKernel template
+- [TIMISONG-dev/MagicTime](https://github.com/TIMISONG-dev/kernel_xiaomi_sm8250) — base EEVDF+CASS
+- [kvsnr113/e404](https://github.com/kvsnr113/xiaomi_sm8250_kernel_e404) — referências EEVDF/DroidSpaces
+- [ravindu644](https://github.com/ravindu644) — fragmento DroidSpaces original
+- [KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) — root solution
 - [osm0sis/AnyKernel3](https://github.com/osm0sis/AnyKernel3) — flashable zip
-- [backslashxx/KernelSU](https://github.com/backslashxx/KernelSU) — root solution
