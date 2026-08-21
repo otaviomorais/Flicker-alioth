@@ -191,10 +191,10 @@ jobs:
 
           echo "==> Validating critical configs..."
           FAILED=0
-          for cfg in CONFIG_KSU=y CONFIG_MEMCG=y CONFIG_MEMCG_SWAP=y CONFIG_PSI=y \
+          for cfg in CONFIG_KSU=y CONFIG_KPROBES=y CONFIG_MEMCG=y CONFIG_MEMCG_SWAP=y CONFIG_PSI=y \
                      CONFIG_USER_NS=y CONFIG_FAIR_GROUP_SCHED=y CONFIG_VETH=y \
                      CONFIG_PID_NS=y CONFIG_NET_NS=y CONFIG_UTS_NS=y CONFIG_IPC_NS=y \
-                     CONFIG_OVERLAY_FS=y; do
+                     CONFIG_OVERLAY_FS=y CONFIG_LRU_GEN=y CONFIG_LRU_GEN_ENABLED=y; do
             if ! grep -q "^$cfg$" out/.config; then
               echo "::error::Missing required config: $cfg"
               FAILED=1

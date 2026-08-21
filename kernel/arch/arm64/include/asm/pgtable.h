@@ -818,6 +818,8 @@ extern pgd_t tramp_pg_dir[PTRS_PER_PGD];
  */
 #define MAX_SWAPFILES_CHECK() BUILD_BUG_ON(MAX_SWAPFILES_SHIFT > __SWP_TYPE_BITS)
 
+#define arch_has_hw_pte_young	cpu_has_hw_af
+
 extern int kern_addr_valid(unsigned long addr);
 
 
