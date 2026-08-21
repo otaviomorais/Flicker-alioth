@@ -1,7 +1,8 @@
-*.zip
-*.img
-*.dtb
-*.dtbo
-*.ko
-out/
-toolchain/
+# artefatos de build do projeto (raiz)
+/out/
+/toolchain/
+/*.zip
+
+# editor
+.vscode/
+.idea/
