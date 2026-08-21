@@ -1,8 +1,11 @@
-name: Build Kernel (MagicTime-DroidSpaces + full EEVDF)
+name: Build FlickerDS Kernel (alioth)
 
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'README.md'
+      - 'anykernel/**'
   workflow_dispatch:
     inputs:
       device:
@@ -14,7 +17,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: kernel-build-${{ github.ref }}
+  group: flickerds-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,15 +26,13 @@ jobs:
     timeout-minutes: 360
     env:
       DEVICE: ${{ github.event.inputs.device || 'alioth' }}
-      KERNEL_REPO: https://github.com/otaviomorais/kernel_xiaomi_sm8250-1
-      KERNEL_BRANCH: magictime-droidspaces
       FRAGMENTS: "vendor/xiaomi/magictime-common.config vendor/xiaomi/droidspaces.config"
 
     steps:
-      - name: Checkout this repo (anykernel + patches)
+      - name: Checkout (source + anykernel + KernelSU-Next submodule)
         uses: actions/checkout@v4
         with:
-          path: repo
+          submodules: recursive
 
       - name: Cache apt packages
         uses: actions/cache@v4
@@ -55,45 +56,12 @@ jobs:
             libssl-dev libncurses-dev kmod cpio
           sudo ln -sf /usr/bin/python3 /usr/bin/python2 || true
 
-      - name: Cache kernel source
-        id: cache-kernel
-        uses: actions/cache@v4
-        with:
-          path: kernel
-          key: ${{ runner.os }}-magictime-ds-${{ hashFiles('patches/*.patch') }}
-          restore-keys: |
-            ${{ runner.os }}-magictime-ds-
-
-      - name: Clone MagicTime-DroidSpaces kernel (with KernelSU-Next submodule)
-        if: steps.cache-kernel.outputs.cache-hit != 'true'
-        run: |
-          git clone --depth 1 --branch ${{ env.KERNEL_BRANCH }} \
-            ${{ env.KERNEL_REPO }}.git kernel
-          cd kernel
-          # drivers/kernelsu is a symlink into the KernelSU-Next submodule;
-          # drivers/Kconfig sources its Kconfig unconditionally.
-          git submodule update --init --recursive --depth=1
-
       - name: Deepen KernelSU-Next history (version = rev-list count)
-        if: steps.cache-kernel.outputs.cache-hit != 'true'
         run: |
           cd kernel/KernelSU-Next
           git fetch --unshallow --tags 2>/dev/null \
             || git fetch --deepen=300 origin 2>/dev/null || true
           echo "KSU commits: $(git rev-list --count HEAD)"
-
-      - name: Apply feature patches
-        run: |
-          cd kernel
-          for patch in ../repo/patches/*.patch; do
-            echo "==> Applying $(basename "$patch")"
-            git apply --check "$patch" && git apply "$patch" || {
-              echo "Failed to apply $patch"
-              exit 1
-            }
-          done
-          grep -q 'SCHED_FEAT(ENFORCE_ELIGIBILITY, true)' kernel/sched/features.h && \
-            echo "ENFORCE_ELIGIBILITY=true confirmed"
 
       - name: Cache Clang toolchain
         id: cache-clang
@@ -169,11 +137,19 @@ jobs:
           sudo swapon "$SWAP"
           free -h
 
-      - name: Configure kernel (defconfig + fragments)
+      - name: Sanity-check branding + EEVDF flags
         run: |
-          cd kernel
+          grep -q 'SCHED_FEAT(ENFORCE_ELIGIBILITY, true)' kernel/kernel/sched/features.h \
+            || { echo "::error::ENFORCE_ELIGIBILITY não está true"; exit 1; }
+          grep -q 'FlickerDS' kernel/arch/arm64/configs/vendor/xiaomi/magictime-common.config \
+            || { echo "::error::LOCALVERSION sem branding"; exit 1; }
+          echo "Branding e ENFORCE_ELIGIBILITY OK"
+
+      - name: Configure kernel (defconfig + fragments)
+        working-directory: kernel
+        run: |
           export ARCH=arm64
-          export KBUILD_BUILD_USER=magictime
+          export KBUILD_BUILD_USER=FlickerDS
           export KBUILD_BUILD_HOST=github
 
           MAKE_ARGS=(O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
@@ -183,8 +159,6 @@ jobs:
 
           make "${MAKE_ARGS[@]}" "${DEVICE}_defconfig"
 
-          # Merge fragments (later ones win); merge_config.sh silently accepts
-          # unknown symbols, so we report what did not land afterwards.
           FRAG_PATHS=()
           for f in $FRAGMENTS; do
             p="arch/arm64/configs/$f"
@@ -213,7 +187,7 @@ jobs:
           [ "$NOT_APPLIED" -eq 0 ] || echo "::warning::$NOT_APPLIED symbol(s) did not land as requested"
 
           echo "==> Config summary:"
-          grep -E "CONFIG_KSU=|CONFIG_MEMCG=|CONFIG_PSI=|CONFIG_USER_NS=|CONFIG_FAIR_GROUP_SCHED=|CONFIG_VETH=|CONFIG_OVERLAY_FS=|CONFIG_LRU_GEN|CONFIG_UCLAMP_ASSIST=" out/.config || true
+          grep -E "CONFIG_KSU=|CONFIG_MEMCG=|CONFIG_PSI=|CONFIG_USER_NS=|CONFIG_FAIR_GROUP_SCHED=|CONFIG_VETH=|CONFIG_OVERLAY_FS=|CONFIG_LOCALVERSION=" out/.config || true
 
           echo "==> Validating critical configs..."
           FAILED=0
@@ -231,10 +205,10 @@ jobs:
           exit $FAILED
 
       - name: Compile kernel
+        working-directory: kernel
         run: |
-          cd kernel
           export ARCH=arm64
-          export KBUILD_BUILD_USER=magictime
+          export KBUILD_BUILD_USER=FlickerDS
           export KBUILD_BUILD_HOST=github
 
           make -j$(nproc) O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
@@ -244,8 +218,8 @@ jobs:
             Image dtbo.img dtbs
 
       - name: Collect artifacts
+        working-directory: kernel
         run: |
-          cd kernel
           ls -la out/arch/arm64/boot/
           mkdir -p out/pack
           cp out/arch/arm64/boot/Image out/pack/Image
@@ -256,49 +230,47 @@ jobs:
       - name: Package AnyKernel3 zip
         run: |
           mkdir -p ak
-          cp -r repo/anykernel/. ak/
+          cp -r anykernel/. ak/
           cp kernel/out/pack/Image ak/Image
           cp kernel/out/pack/dtb ak/dtb
           cp kernel/out/pack/dtbo.img ak/dtbo.img
-          ZIP="Kernel-${DEVICE}-magictime-ds-eevdf-$(date +%Y%m%d-%H%M).zip"
+          ZIP="FlickerDS-${DEVICE}-$(date +%Y%m%d-%H%M).zip"
           cd ak && zip -r9 "$ZIP" . -x '*.git*' && cd ..
-          mv "ak/$ZIP" repo/
+          mv "ak/$ZIP" .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-${{ env.DEVICE }}
-          path: repo/Kernel-*.zip
+          name: FlickerDS-${{ env.DEVICE }}
+          path: FlickerDS-*.zip
           if-no-files-found: error
 
       - name: Create Release
-        working-directory: repo
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ZIP="$(ls Kernel-*.zip)"
-          RELEASE="magictime-ds-v1.0.0-$(date +%Y%m%d-%H%M)"
-          NOTES="## Kernel ${DEVICE} — MagicTime + DroidSpaces + full EEVDF
+          ZIP="$(ls FlickerDS-*.zip)"
+          RELEASE="flickerds-v1.0.0-$(date +%Y%m%d-%H%M)"
+          NOTES="## FlickerDS Kernel — ${DEVICE}
 
-          **Base**: otaviomorais/kernel_xiaomi_sm8250-1 (\`${KERNEL_BRANCH}\`, 4.19.325)
+          **Base**: MagicTime 4.19.325 + DroidSpaces (fonte completa neste repo)
 
-          **Scheduler**:
-          - Backport EEVDF completo (pick_eevdf, delayed dequeue, slice protection)
+          **Scheduler**: EEVDF pleno
+          - pick_eevdf com **ENFORCE_ELIGIBILITY=true** (fairness imposta)
           - Placement features ON (PLACE_LAG, PLACE_DEADLINE_INITIAL, PLACE_REL_DEADLINE, RUN_TO_PARITY)
-          - **ENFORCE_ELIGIBILITY=true** — fairness imposta (EEVDF pleno)
-          - CASS para wake-up balancing + Uclamp Assist
+          - CASS wake-up balancing + Uclamp Assist
+          - Delayed dequeue + slice protection (fixes 6.12)
 
           **DroidSpaces/LXC**:
-          - Namespaces completos (PID/UTS/IPC/NET/**USER**)
-          - MEMCG + CGROUP_DEVICE/PIDS/FREEZER + FAIR_GROUP_SCHED (CPU shares por container)
-          - Netfilter/NAT/VETH/Bridge p/ isolamento de rede
-          - Patch cgroup NOPREFIX (symlinks subsys.file)
+          - Namespaces completos (PID/UTS/IPC/NET/USER)
+          - MEMCG + CGROUP_DEVICE/PIDS/FREEZER + FAIR_GROUP_SCHED
+          - Netfilter/NAT/VETH/Bridge + patch cgroup NOPREFIX
 
-          **Extras**: KernelSU-Next, NTSYNC, ZRAM writeback, PSI
+          **Extras**: KernelSU-Next, PSI, ZRAM writeback
 
-          Flash via recovery. ⚠️ MGLRU ausente nesta base (por desenho)."
+          Flash via recovery."
 
           gh release create "$RELEASE" "$ZIP" \
-            --title "Kernel ${DEVICE} — magictime-ds-eevdf $(date +%Y%m%d-%H%M)" \
+            --title "FlickerDS ${DEVICE} $(date +%Y%m%d-%H%M)" \
             --notes "$NOTES"
           echo "Release: https://github.com/${{ github.repository }}/releases/tag/$RELEASE"
