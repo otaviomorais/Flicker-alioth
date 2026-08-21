@@ -4,7 +4,7 @@
 ## AnyKernel setup
 # begin properties
 properties() { '
-kernel.string=Flicker Kernel for alioth
+kernel.string=E404-MGLRU Kernel for alioth
 do.devicecheck=1
 do.modules=0
 do.systemless=1

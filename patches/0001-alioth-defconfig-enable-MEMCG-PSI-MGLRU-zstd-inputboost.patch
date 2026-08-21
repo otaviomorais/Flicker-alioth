@@ -1,0 +1,32 @@
+diff --git a/arch/arm64/configs/vendor/alioth_defconfig b/arch/arm64/configs/vendor/alioth_defconfig
+index 341ca5485..d0594727b 100644
+--- a/arch/arm64/configs/vendor/alioth_defconfig
++++ b/arch/arm64/configs/vendor/alioth_defconfig
+@@ -100,7 +100,7 @@ CONFIG_TASKSTATS=y
+ # CONFIG_TASK_DELAY_ACCT is not set
+ CONFIG_TASK_XACCT=y
+ CONFIG_TASK_IO_ACCOUNTING=y
+-# CONFIG_PSI is not set
++CONFIG_PSI=y
+ # CONFIG_CPU_ISOLATION is not set
+ 
+ #
+@@ -147,7 +147,10 @@ CONFIG_PELT_COMPATIBILITY_LAYER=y
+ CONFIG_ARCH_SUPPORTS_NUMA_BALANCING=y
+ CONFIG_ARCH_SUPPORTS_INT128=y
+ CONFIG_CGROUPS=y
+-# CONFIG_MEMCG is not set
++CONFIG_MEMCG=y
++CONFIG_MEMCG_SWAP=y
++CONFIG_LRU_GEN=y
++CONFIG_LRU_GEN_ENABLED=y
+ CONFIG_BLK_CGROUP=y
+ # CONFIG_DEBUG_BLK_CGROUP is not set
+ CONFIG_CGROUP_SCHED=y
+@@ -5732,3 +5735,6 @@ CONFIG_ARCH_HAS_DEVMEM_IS_ALLOWED=y
+ # CONFIG_DEBUG_ALIGN_RODATA is not set
+ # CONFIG_ARM64_STRICT_BREAK_BEFORE_MAKE is not set
+ # CONFIG_CORESIGHT is not set
++CONFIG_CPU_INPUT_BOOST=y
++CONFIG_ZRAM_BACKEND_ZSTD=y
++CONFIG_ZRAM_DEF_COMP_ZSTD=y
