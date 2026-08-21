@@ -174,11 +174,11 @@ jobs:
             vendor/${DEVICE}_defconfig
 
           echo "==> Config summary:"
-          grep -E "CONFIG_KSU=|CONFIG_MEMCG=|CONFIG_PSI=|CONFIG_LRU_GEN=|CONFIG_UCLAMP_ASSIST=|CONFIG_IRQ_SBALANCE=|CONFIG_CPU_INPUT_BOOST=|CONFIG_ZRAM_DEF_COMP=|CONFIG_NTSYNC=" out/.config || true
+          grep -E "CONFIG_KSU=|CONFIG_MEMCG=|CONFIG_PSI=|CONFIG_LRU_GEN=|CONFIG_UCLAMP_ASSIST=|CONFIG_IRQ_SBALANCE=|CONFIG_CPU_INPUT_BOOST=|CONFIG_ZRAM_DEF_COMP=|CONFIG_NTSYNC=|CONFIG_LTO_CLANG_THIN=" out/.config || true
 
           echo "==> Validating critical configs..."
           FAILED=0
-          for cfg in CONFIG_KSU=y CONFIG_MEMCG=y CONFIG_MEMCG_SWAP=y CONFIG_PSI=y CONFIG_LRU_GEN=y CONFIG_LRU_GEN_ENABLED=y CONFIG_THINLTO=y; do
+          for cfg in CONFIG_KSU=y CONFIG_MEMCG=y CONFIG_MEMCG_SWAP=y CONFIG_PSI=y CONFIG_LRU_GEN=y CONFIG_LRU_GEN_ENABLED=y CONFIG_LTO_CLANG_THIN=y; do
             if ! grep -q "^$cfg$" out/.config; then
               echo "❌ Missing required config: $cfg"
               FAILED=1
