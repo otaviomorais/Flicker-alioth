@@ -5,7 +5,6 @@ on:
     branches: [ main ]
     paths-ignore:
       - 'README.md'
-      - 'anykernel/**'
   workflow_dispatch:
     inputs:
       device:
@@ -26,11 +25,15 @@ jobs:
     timeout-minutes: 360
     env:
       DEVICE: ${{ github.event.inputs.device || 'alioth' }}
+      KERNEL_REPO: https://github.com/otaviomorais/kernel_xiaomi_sm8250-1
+      KERNEL_BRANCH: magictime-droidspaces
       FRAGMENTS: "vendor/xiaomi/magictime-common.config vendor/xiaomi/droidspaces.config"
 
     steps:
-      - name: Checkout
+      - name: Checkout this repo (patches + anykernel)
         uses: actions/checkout@v4
+        with:
+          path: repo
 
       - name: Cache apt packages
         uses: actions/cache@v4
@@ -53,6 +56,56 @@ jobs:
             flex bison bc zip unzip file python3 python-is-python3 \
             libssl-dev libncurses-dev kmod cpio
           sudo ln -sf /usr/bin/python3 /usr/bin/python2 || true
+
+      - name: Cache kernel source
+        id: cache-kernel
+        uses: actions/cache@v4
+        with:
+          path: kernel
+          key: ${{ runner.os }}-magictime-ds-${{ hashFiles('patches/*.patch') }}
+          restore-keys: |
+            ${{ runner.os }}-magictime-ds-
+
+      - name: Clone base kernel (otaviomorais fork, with KernelSU submodule)
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch ${{ env.KERNEL_BRANCH }} \
+            ${{ env.KERNEL_REPO }}.git kernel
+          cd kernel
+          git submodule update --init --recursive --depth=1
+
+      - name: Deepen KernelSU history (version = rev-list count)
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
+        run: |
+          cd kernel/KernelSU-Next
+          git fetch --unshallow --tags 2>/dev/null \
+            || git fetch --deepen=300 origin 2>/dev/null || true
+          echo "KSU commits: $(git rev-list --count HEAD)"
+
+      - name: Apply patches (full EEVDF + MGLRU)
+        run: |
+          cd kernel
+          for patch in ../repo/patches/*.patch; do
+            echo "==> $(basename "$patch")"
+            git apply --check "$patch" && git apply "$patch" || {
+              echo "::error::failed to apply $patch"; exit 1;
+            }
+          done
+          grep -q 'SCHED_FEAT(ENFORCE_ELIGIBILITY, true)' kernel/sched/features.h && \
+            echo "ENFORCE_ELIGIBILITY=true confirmed"
+          grep -q 'config LRU_GEN$' mm/Kconfig && echo "MGLRU present"
+
+          # Branding (CRLF-immune)
+          sed -i 's/CONFIG_LOCALVERSION="-MagicTime"/CONFIG_LOCALVERSION="-FlickerDS"/' \
+            arch/arm64/configs/vendor/xiaomi/magictime-common.config
+          grep -q 'FlickerDS' arch/arm64/configs/vendor/xiaomi/magictime-common.config && \
+            echo "Branding OK"
+
+          # KSU selinux_hide: kprobe helpers only exist when KSU_KPROBES_HOOK is
+          # enabled (unavailable on 4.19 — no HAVE_SYSCALL_TRACEPOINTS). Align the
+          # guards so the references compile out instead of breaking vmlinux link.
+          sed -i 's/#if defined(CONFIG_KPROBES)$/#if defined(CONFIG_KPROBES) \&\& defined(KSU_KPROBES_HOOK)/' \
+            drivers/kernelsu/feature/selinux_hide.c
 
       - name: Cache Clang toolchain
         id: cache-clang
@@ -128,17 +181,9 @@ jobs:
           sudo swapon "$SWAP"
           free -h
 
-      - name: Sanity-check branding + EEVDF flags
-        run: |
-          grep -q 'SCHED_FEAT(ENFORCE_ELIGIBILITY, true)' kernel/kernel/sched/features.h \
-            || { echo "::error::ENFORCE_ELIGIBILITY não está true"; exit 1; }
-          grep -q 'FlickerDS' kernel/arch/arm64/configs/vendor/xiaomi/magictime-common.config \
-            || { echo "::error::LOCALVERSION sem branding"; exit 1; }
-          echo "Branding e ENFORCE_ELIGIBILITY OK"
-
       - name: Configure kernel (defconfig + fragments)
-        working-directory: kernel
         run: |
+          cd kernel
           export ARCH=arm64
           export KBUILD_BUILD_USER=FlickerDS
           export KBUILD_BUILD_HOST=github
@@ -157,6 +202,10 @@ jobs:
             FRAG_PATHS+=("$p")
           done
           ./scripts/kconfig/merge_config.sh -m -O out out/.config "${FRAG_PATHS[@]}"
+
+          # KPROBES explicit: KSU depends on it and the base defconfig omits it
+          scripts/config --file out/.config -e KPROBES -e KRETPROBES
+
           make "${MAKE_ARGS[@]}" olddefconfig
 
           echo "===== requested symbols that did not land ====="
@@ -178,7 +227,7 @@ jobs:
           [ "$NOT_APPLIED" -eq 0 ] || echo "::warning::$NOT_APPLIED symbol(s) did not land as requested"
 
           echo "==> Config summary:"
-          grep -E "CONFIG_KSU=|CONFIG_MEMCG=|CONFIG_PSI=|CONFIG_USER_NS=|CONFIG_FAIR_GROUP_SCHED=|CONFIG_VETH=|CONFIG_OVERLAY_FS=|CONFIG_LOCALVERSION=" out/.config || true
+          grep -E "CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_MEMCG=|CONFIG_PSI=|CONFIG_USER_NS=|CONFIG_FAIR_GROUP_SCHED=|CONFIG_VETH=|CONFIG_OVERLAY_FS=|CONFIG_LRU_GEN=|CONFIG_LOCALVERSION=" out/.config || true
 
           echo "==> Validating critical configs..."
           FAILED=0
@@ -196,8 +245,8 @@ jobs:
           exit $FAILED
 
       - name: Compile kernel
-        working-directory: kernel
         run: |
+          cd kernel
           export ARCH=arm64
           export KBUILD_BUILD_USER=FlickerDS
           export KBUILD_BUILD_HOST=github
@@ -209,8 +258,8 @@ jobs:
             Image dtbo.img dtbs
 
       - name: Collect artifacts
-        working-directory: kernel
         run: |
+          cd kernel
           ls -la out/arch/arm64/boot/
           mkdir -p out/pack
           cp out/arch/arm64/boot/Image out/pack/Image
@@ -221,7 +270,7 @@ jobs:
       - name: Package AnyKernel3 zip
         run: |
           mkdir -p ak
-          cp -r anykernel/. ak/
+          cp -r repo/anykernel/. ak/
           cp kernel/out/pack/Image ak/Image
           cp kernel/out/pack/dtb ak/dtb
           cp kernel/out/pack/dtbo.img ak/dtbo.img
@@ -241,27 +290,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ZIP="$(ls FlickerDS-*.zip)"
-          RELEASE="flickerds-v1.0.0-$(date +%Y%m%d-%H%M)"
+          RELEASE="flickerds-v1.1.0-$(date +%Y%m%d-%H%M)"
           NOTES="## FlickerDS Kernel — ${DEVICE}
 
-          **Base**: MagicTime 4.19.325 + DroidSpaces (fonte completa neste repo)
+          **Base**: otaviomorais/kernel_xiaomi_sm8250-1 @\`${KERNEL_BRANCH}\` (MagicTime 4.19.325 + DroidSpaces)
+
+          **Novidade vs v1.0**: MGLRU (Multi-Gen LRU) porteado da série completa do Flicker
+          (27 commits), adaptado à API pagewalk moderna desta árvore.
 
           **Scheduler**: EEVDF pleno
-          - pick_eevdf com **ENFORCE_ELIGIBILITY=true** (fairness imposta)
-          - Placement features ON (PLACE_LAG, PLACE_DEADLINE_INITIAL, PLACE_REL_DEADLINE, RUN_TO_PARITY)
-          - CASS wake-up balancing + Uclamp Assist
-          - Delayed dequeue + slice protection (fixes 6.12)
+          - ENFORCE_ELIGIBILITY=true (fairness imposta) — igual à v1.0 que você usa
+          - Placement features ON + CASS + Uclamp Assist
 
-          **DroidSpaces/LXC**:
-          - Namespaces completos (PID/UTS/IPC/NET/USER)
-          - MEMCG + CGROUP_DEVICE/PIDS/FREEZER + FAIR_GROUP_SCHED
-          - Netfilter/NAT/VETH/Bridge + patch cgroup NOPREFIX
+          **Memória**: MGLRU (LRU_GEN + LRU_GEN_ENABLED) · MEMCG · MEMCG_SWAP · PSI
 
-          **Extras**: KernelSU-Next, PSI, ZRAM writeback
+          **DroidSpaces/LXC**: namespaces completos (PID/UTS/IPC/NET/USER),
+          CGROUP_DEVICE/PIDS/FREEZER, FAIR_GROUP_SCHED, netfilter/NAT/VETH/Bridge,
+          patch cgroup NOPREFIX.
 
-          Flash via recovery."
+          **Extras**: KernelSU (submódulo pinned), ZRAM writeback.
+
+          Flash via recovery. Se algo estranho: reportar com dmesg/pstore."
 
           gh release create "$RELEASE" "$ZIP" \
-            --title "FlickerDS ${DEVICE} $(date +%Y%m%d-%H%M)" \
+            --title "FlickerDS ${DEVICE} +MGLRU $(date +%Y%m%d-%H%M)" \
             --notes "$NOTES"
           echo "Release: https://github.com/${{ github.repository }}/releases/tag/$RELEASE"

@@ -1,0 +1,12 @@
+diff --git a/kernel/sched/features.h b/kernel/sched/features.h
+--- a/kernel/sched/features.h
++++ b/kernel/sched/features.h
+@@ -4,7 +4,7 @@
+  * Using the avg_vruntime, do the right thing and preserve lag across
+  * sleep+wake cycles. EEVDF placement strategy #1, #2 if disabled.
+  */
+-SCHED_FEAT(ENFORCE_ELIGIBILITY, false)
++SCHED_FEAT(ENFORCE_ELIGIBILITY, true)
+ SCHED_FEAT(PLACE_LAG, true)
+ /*
+  * Give new tasks half a slice to ease into the competition.
