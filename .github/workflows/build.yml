@@ -15,10 +15,6 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: flickerds-${{ github.ref }}-${{ matrix.variant }}
-  cancel-in-progress: false
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,6 +28,9 @@ jobs:
       KERNEL_REPO: https://github.com/otaviomorais/kernel_xiaomi_sm8250-1
       KERNEL_BRANCH: magictime-droidspaces
       FRAGMENTS: "vendor/xiaomi/magictime-common.config vendor/xiaomi/droidspaces.config"
+    concurrency:
+      group: flickerds-${{ github.ref }}-${{ matrix.variant }}
+      cancel-in-progress: false
 
     steps:
       - name: Checkout this repo (patches + anykernel)
@@ -74,7 +73,7 @@ jobs:
           git fetch --unshallow --tags 2>/dev/null \
             || git fetch --deepen=300 origin 2>/dev/null || true
 
-      - name: Apply patches (variant: ${{ matrix.variant }})
+      - name: "Apply patches (variant: ${{ matrix.variant }})"
         run: |
           cd kernel
           apply(){ echo "==> $(basename "$1")"; git apply --check "$1" && git apply "$1" \
