@@ -29,10 +29,8 @@ jobs:
       FRAGMENTS: "vendor/xiaomi/magictime-common.config vendor/xiaomi/droidspaces.config"
 
     steps:
-      - name: Checkout (source + anykernel + KernelSU-Next submodule)
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Cache apt packages
         uses: actions/cache@v4
@@ -55,13 +53,6 @@ jobs:
             flex bison bc zip unzip file python3 python-is-python3 \
             libssl-dev libncurses-dev kmod cpio
           sudo ln -sf /usr/bin/python3 /usr/bin/python2 || true
-
-      - name: Deepen KernelSU-Next history (version = rev-list count)
-        run: |
-          cd kernel/KernelSU-Next
-          git fetch --unshallow --tags 2>/dev/null \
-            || git fetch --deepen=300 origin 2>/dev/null || true
-          echo "KSU commits: $(git rev-list --count HEAD)"
 
       - name: Cache Clang toolchain
         id: cache-clang
