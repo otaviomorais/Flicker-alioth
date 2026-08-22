@@ -194,6 +194,9 @@ jobs:
 
           # KPROBES explicit: KSU depends on it and the base defconfig omits it
           scripts/config --file out/.config -e KPROBES -e KRETPROBES
+          # v1.1.1 bisect: MGLRU code built-in but aging OFF by default
+          # (classic LRU at boot; runtime-enable: echo 7 > /sys/kernel/mm/lru_gen/enabled)
+          scripts/config --file out/.config -d LRU_GEN_ENABLED
 
           make "${MAKE_ARGS[@]}" olddefconfig
 
@@ -223,7 +226,7 @@ jobs:
           for cfg in CONFIG_KSU=y CONFIG_KPROBES=y CONFIG_MEMCG=y CONFIG_MEMCG_SWAP=y CONFIG_PSI=y \
                      CONFIG_USER_NS=y CONFIG_FAIR_GROUP_SCHED=y CONFIG_VETH=y \
                      CONFIG_PID_NS=y CONFIG_NET_NS=y CONFIG_UTS_NS=y CONFIG_IPC_NS=y \
-                     CONFIG_OVERLAY_FS=y CONFIG_LRU_GEN=y CONFIG_LRU_GEN_ENABLED=y; do
+                     CONFIG_OVERLAY_FS=y CONFIG_LRU_GEN=y; do
             if ! grep -q "^$cfg$" out/.config; then
               echo "::error::Missing required config: $cfg"
               FAILED=1
