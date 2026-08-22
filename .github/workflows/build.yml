@@ -1,4 +1,4 @@
-name: Build FlickerDS Kernel (alioth)
+name: Build FlickerDS Kernel (alioth) — matriz de diagnóstico
 
 on:
   push:
@@ -16,13 +16,17 @@ permissions:
   contents: write
 
 concurrency:
-  group: flickerds-${{ github.ref }}
-  cancel-in-progress: true
+  group: flickerds-${{ github.ref }}-${{ matrix.variant }}
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [full, nohooks, control]
     env:
       DEVICE: ${{ github.event.inputs.device || 'alioth' }}
       KERNEL_REPO: https://github.com/otaviomorais/kernel_xiaomi_sm8250-1
@@ -69,20 +73,30 @@ jobs:
           cd kernel/KernelSU-Next
           git fetch --unshallow --tags 2>/dev/null \
             || git fetch --deepen=300 origin 2>/dev/null || true
-          echo "KSU commits: $(git rev-list --count HEAD)"
 
-      - name: Apply patches (full EEVDF + MGLRU)
+      - name: Apply patches (variant: ${{ matrix.variant }})
         run: |
           cd kernel
-          for patch in ../repo/patches/*.patch; do
-            echo "==> $(basename "$patch")"
-            git apply --check "$patch" && git apply "$patch" || {
-              echo "::error::failed to apply $patch"; exit 1;
-            }
-          done
+          apply(){ echo "==> $(basename "$1")"; git apply --check "$1" && git apply "$1" \
+            || { echo "::error::failed to apply $1"; exit 1; }; }
+
+          # 0001 sempre (EEVDF estrito)
+          apply ../repo/patches/0001-enable-full-eevdf.patch
+
+          if [ "${{ matrix.variant }}" != "control" ]; then
+            apply ../repo/patches/0002-mm-backport-mglru.patch
+          fi
+
+          if [ "${{ matrix.variant }}" = "nohooks" ]; then
+            apply ../repo/patches/0003-remove-mglru-sched-hooks.patch
+          fi
+
           grep -q 'SCHED_FEAT(ENFORCE_ELIGIBILITY, true)' kernel/sched/features.h && \
             echo "ENFORCE_ELIGIBILITY=true confirmed"
-          grep -q 'config LRU_GEN$' mm/Kconfig && echo "MGLRU present"
+
+          if [ "${{ matrix.variant }}" != "control" ]; then
+            grep -q 'config LRU_GEN$' mm/Kconfig && echo "MGLRU presente"
+          fi
 
           # Branding (CRLF-immune)
           sed -i 's/CONFIG_LOCALVERSION="-MagicTime"/CONFIG_LOCALVERSION="-FlickerDS"/' \
@@ -90,9 +104,8 @@ jobs:
           grep -q 'FlickerDS' arch/arm64/configs/vendor/xiaomi/magictime-common.config && \
             echo "Branding OK"
 
-          # KSU selinux_hide: kprobe helpers only exist when KSU_KPROBES_HOOK is
-          # enabled (unavailable on 4.19 — no HAVE_SYSCALL_TRACEPOINTS). Align the
-          # guards so the references compile out instead of breaking vmlinux link.
+          # KSU selinux_hide: kprobe helpers só existem com KSU_KPROBES_HOOK
+          # (indisponível no 4.19 — sem HAVE_SYSCALL_TRACEPOINTS)
           sed -i 's/#if defined(CONFIG_KPROBES)$/#if defined(CONFIG_KPROBES) \&\& defined(KSU_KPROBES_HOOK)/' \
             drivers/kernelsu/feature/selinux_hide.c
 
@@ -194,9 +207,11 @@ jobs:
 
           # KPROBES explicit: KSU depends on it and the base defconfig omits it
           scripts/config --file out/.config -e KPROBES -e KRETPROBES
-          # v1.1.1 bisect: MGLRU code built-in but aging OFF by default
-          # (classic LRU at boot; runtime-enable: echo 7 > /sys/kernel/mm/lru_gen/enabled)
-          scripts/config --file out/.config -d LRU_GEN_ENABLED
+
+          if [ "${{ matrix.variant }}" != "control" ]; then
+            # bisec v1.1.x: aging do MGLRU OFF por default
+            scripts/config --file out/.config -d LRU_GEN_ENABLED
+          fi
 
           make "${MAKE_ARGS[@]}" olddefconfig
 
@@ -218,15 +233,19 @@ jobs:
           done
           [ "$NOT_APPLIED" -eq 0 ] || echo "::warning::$NOT_APPLIED symbol(s) did not land as requested"
 
-          echo "==> Config summary:"
+          echo "==> Config summary (${{ matrix.variant }}):"
           grep -E "CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_MEMCG=|CONFIG_PSI=|CONFIG_USER_NS=|CONFIG_FAIR_GROUP_SCHED=|CONFIG_VETH=|CONFIG_OVERLAY_FS=|CONFIG_LRU_GEN=|CONFIG_LOCALVERSION=" out/.config || true
 
           echo "==> Validating critical configs..."
           FAILED=0
-          for cfg in CONFIG_KSU=y CONFIG_KPROBES=y CONFIG_MEMCG=y CONFIG_MEMCG_SWAP=y CONFIG_PSI=y \
-                     CONFIG_USER_NS=y CONFIG_FAIR_GROUP_SCHED=y CONFIG_VETH=y \
-                     CONFIG_PID_NS=y CONFIG_NET_NS=y CONFIG_UTS_NS=y CONFIG_IPC_NS=y \
-                     CONFIG_OVERLAY_FS=y CONFIG_LRU_GEN=y; do
+          REQ="CONFIG_KSU=y CONFIG_KPROBES=y CONFIG_MEMCG=y CONFIG_MEMCG_SWAP=y CONFIG_PSI=y \
+               CONFIG_USER_NS=y CONFIG_FAIR_GROUP_SCHED=y CONFIG_VETH=y \
+               CONFIG_PID_NS=y CONFIG_NET_NS=y CONFIG_UTS_NS=y CONFIG_IPC_NS=y \
+               CONFIG_OVERLAY_FS=y"
+          if [ "${{ matrix.variant }}" != "control" ]; then
+            REQ="$REQ CONFIG_LRU_GEN=y"
+          fi
+          for cfg in $REQ; do
             if ! grep -q "^$cfg$" out/.config; then
               echo "::error::Missing required config: $cfg"
               FAILED=1
@@ -266,14 +285,14 @@ jobs:
           cp kernel/out/pack/Image ak/Image
           cp kernel/out/pack/dtb ak/dtb
           cp kernel/out/pack/dtbo.img ak/dtbo.img
-          ZIP="FlickerDS-${DEVICE}-$(date +%Y%m%d-%H%M).zip"
+          ZIP="FlickerDS-${DEVICE}-${{ matrix.variant }}-$(date +%Y%m%d-%H%M).zip"
           cd ak && zip -r9 "$ZIP" . -x '*.git*' && cd ..
           mv "ak/$ZIP" .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FlickerDS-${{ env.DEVICE }}
+          name: FlickerDS-${{ matrix.variant }}
           path: FlickerDS-*.zip
           if-no-files-found: error
 
@@ -283,29 +302,20 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           ZIP="$(ls FlickerDS-*.zip)"
-          RELEASE="flickerds-v1.1.0-$(date +%Y%m%d-%H%M)"
-          NOTES="## FlickerDS Kernel — ${DEVICE}
+          RELEASE="flickerds-v1.1.2-${{ matrix.variant }}-$(date +%Y%m%d-%H%M)"
+          case "${{ matrix.variant }}" in
+            full)    DESC="MGLRU completo com hooks sched/exec (igual v1.1.1 — referência do bootloop)";;
+            nohooks) DESC="MGLRU completo SEM os hooks lru_gen_* em exec/core/exit/fork (principal candidato)";;
+            control) DESC="Controle: exatamente a composição da v1.0 reconstruída hoje (isola pipeline)";;
+          esac
+          NOTES="## FlickerDS ${DEVICE} — variante **${{ matrix.variant }}**
 
-          **Base**: otaviomorais/kernel_xiaomi_sm8250-1 @\`${KERNEL_BRANCH}\` (MagicTime 4.19.325 + DroidSpaces)
+          ${DESC}
 
-          **Novidade vs v1.0**: MGLRU (Multi-Gen LRU) porteado da série completa do Flicker
-          (27 commits), adaptado à API pagewalk moderna desta árvore.
-
-          **Scheduler**: EEVDF pleno
-          - ENFORCE_ELIGIBILITY=true (fairness imposta) — igual à v1.0 que você usa
-          - Placement features ON + CASS + Uclamp Assist
-
-          **Memória**: MGLRU (LRU_GEN + LRU_GEN_ENABLED) · MEMCG · MEMCG_SWAP · PSI
-
-          **DroidSpaces/LXC**: namespaces completos (PID/UTS/IPC/NET/USER),
-          CGROUP_DEVICE/PIDS/FREEZER, FAIR_GROUP_SCHED, netfilter/NAT/VETH/Bridge,
-          patch cgroup NOPREFIX.
-
-          **Extras**: KernelSU (submódulo pinned), ZRAM writeback.
-
-          Flash via recovery. Se algo estranho: reportar com dmesg/pstore."
+          Base: otaviomorais/kernel_xiaomi_sm8250-1 @\`${KERNEL_BRANCH}\` + EEVDF pleno.
+          Aging do MGLRU desligado por default em todas as variantes com MGLRU."
 
           gh release create "$RELEASE" "$ZIP" \
-            --title "FlickerDS ${DEVICE} +MGLRU $(date +%Y%m%d-%H%M)" \
+            --title "FlickerDS ${{ matrix.variant }} $(date +%Y%m%d-%H%M)" \
             --notes "$NOTES"
           echo "Release: https://github.com/${{ github.repository }}/releases/tag/$RELEASE"

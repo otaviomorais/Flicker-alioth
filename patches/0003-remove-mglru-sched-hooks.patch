@@ -1,0 +1,51 @@
+diff --git a/fs/exec.c b/fs/exec.c
+index 60dd4e577..1edcfcfdc 100644
+--- a/fs/exec.c
++++ b/fs/exec.c
+@@ -1042,9 +1042,8 @@ static int exec_mmap(struct mm_struct *mm)
+ 	if (!IS_ENABLED(CONFIG_ARCH_WANT_IRQS_OFF_ACTIVATE_MM))
+ 		local_irq_enable();
+ 	activate_mm(active_mm, mm);
+-	lru_gen_use_mm(mm);
++
+ 	tsk->mm->vmacache_seqnum = 0;
+-	lru_gen_add_mm(mm);
+ 	vmacache_flush(tsk);
+ 	task_unlock(tsk);
+ 	if (old_mm) {
+diff --git a/kernel/exit.c b/kernel/exit.c
+index 51bb666f4..77eafa94b 100644
+--- a/kernel/exit.c
++++ b/kernel/exit.c
+@@ -474,7 +474,6 @@ void mm_update_next_owner(struct mm_struct *mm)
+ 		goto retry;
+ 	}
+ 	mm->owner = c;
+-	lru_gen_migrate_mm(mm);
+ 	task_unlock(c);
+ 	put_task_struct(c);
+ }
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 81c9a15d2..90de4a274 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -2420,7 +2420,6 @@ long _do_fork(unsigned long clone_flags,
+ 	if (IS_ENABLED(CONFIG_LRU_GEN) && !(clone_flags & CLONE_VM)) {
+ 		/* lock the task to synchronize with memcg migration */
+ 		task_lock(p);
+-		lru_gen_add_mm(p->mm);
+ 		task_unlock(p);
+ 	}
+ 
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index b48484fb8..c17a6c1a1 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -4766,7 +4766,6 @@ context_switch(struct rq *rq, struct task_struct *prev,
+ 		 * finish_task_switch()'s mmdrop().
+ 		 */
+ 		switch_mm_irqs_off(prev->active_mm, next->mm, next);
+-		lru_gen_use_mm(next->mm);
+ 
+ 		if (!prev->mm) {                        // from kernel
+ 			/* will mmdrop() in finish_task_switch(). */
